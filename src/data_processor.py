@@ -36,7 +36,7 @@ def filter_by_value(transactions: List[Dict], min_usd: float, max_usd: float) ->
     Args:
         transactions: List of transaction dictionaries
         min_usd: Minimum USD value
-        max_usd: Maximum USD value
+        max_usd: Maximum USD value (can be float('inf'))
         
     Returns:
         Filtered list of transactions
@@ -53,6 +53,7 @@ def filter_by_value(transactions: List[Dict], min_usd: float, max_usd: float) ->
                 if 'amount_out' in amount_info:
                     value_usd = float(amount_info.get('amount_out', {}).get('uiAmount', 0))
         
+        # Check if value is within range
         if min_usd <= value_usd <= max_usd:
             filtered.append(tx)
     

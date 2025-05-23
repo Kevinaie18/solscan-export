@@ -92,14 +92,18 @@ def main():
             )
         
         with col_max:
-            max_value = st.number_input(
-                "Max USD Value", 
-                min_value=0.0, 
-                value=10000.0,
-                step=1.0,
-                format="%.2f",
-                help="Maximum transaction value in USD"
-            )
+            use_max_value = st.checkbox("Set maximum value", value=False, help="Enable to set a maximum USD value filter")
+            if use_max_value:
+                max_value = st.number_input(
+                    "Max USD Value", 
+                    min_value=0.0, 
+                    value=10000.0,
+                    step=1.0,
+                    format="%.2f",
+                    help="Maximum transaction value in USD"
+                )
+            else:
+                max_value = float('inf')  # No maximum value limit
         
         # Transaction type selection
         tx_types = st.multiselect(
@@ -137,7 +141,9 @@ def main():
                 st.error(f"❌ {date_validation['message']}")
         
         # Value range validation
-        if min_value <= max_value:
+        if not use_max_value:
+            st.info(f"💰 Value range: {format_currency(min_value)} and above")
+        elif min_value <= max_value:
             st.info(f"💰 Value range: {format_currency(min_value)} - {format_currency(max_value)}")
         else:
             st.error("❌ Min value must be less than max value")
@@ -157,7 +163,7 @@ def main():
         wallet and 
         wallet_valid and 
         start_date <= end_date and 
-        min_value <= max_value and 
+        (not use_max_value or min_value <= max_value) and 
         tx_types
     )
     
@@ -210,7 +216,7 @@ def main():
             progress_bar.progress(60)
             
             # Filter by value
-            if min_value > 0 or max_value < 10000:
+            if min_value > 0 or (use_max_value and max_value < float('inf')):
                 filtered_transactions = filter_by_value(
                     filtered_transactions, min_value, max_value
                 )

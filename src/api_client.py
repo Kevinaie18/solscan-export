@@ -17,37 +17,42 @@ class SolscanClient:
             api_key: Solscan API key
         """
         self.api_key = api_key
-        self.base_url = "https://public-api.solscan.io"
+        self.base_url = "https://pro-api.solscan.io/v2.0"
         self.headers = {
             "token": api_key,
             "User-Agent": "DeFi-Export-Tool/1.0"
         }
     
     def get_defi_activities(self, account: str, from_time: int, to_time: int, 
-                           limit: int = 50, before: Optional[str] = None) -> Dict:
+                           page: int = 1, page_size: int = 100) -> Dict:
         """Get DeFi activities for an account
         
         Args:
             account: Wallet address
             from_time: Start timestamp (Unix)
             to_time: End timestamp (Unix)
-            limit: Number of transactions per request
-            before: Signature to paginate from
+            page: Page number for pagination
+            page_size: Number of transactions per page
             
         Returns:
             API response data
         """
-        url = f"{self.base_url}/account/defi/activities"
+        url = f"{self.base_url}/token/defi/activities"
         
         params = {
-            "account": account,
-            "fromTime": from_time,
-            "toTime": to_time,
-            "limit": limit
+            "address": account,
+            "activity_type[]": ["ACTIVITY_TOKEN_SWAP", "ACTIVITY_AGG_TOKEN_SWAP"],
+            "page": page,
+            "page_size": page_size,
+            "sort_by": "block_time",
+            "sort_order": "desc"
         }
         
-        if before:
-            params["before"] = before
+        # Add time range if specified
+        if from_time:
+            params["from_time"] = from_time
+        if to_time:
+            params["to_time"] = to_time
         
         try:
             response = requests.get(url, headers=self.headers, params=params, timeout=30)
@@ -68,7 +73,7 @@ class SolscanClient:
             List of all transactions
         """
         all_transactions = []
-        before_signature = None
+        page = 1
         
         while True:
             # Make API request
@@ -76,8 +81,8 @@ class SolscanClient:
                 account=account,
                 from_time=from_time,
                 to_time=to_time,
-                limit=50,
-                before=before_signature
+                page=page,
+                page_size=100
             )
             
             # Check if we have data
@@ -88,11 +93,11 @@ class SolscanClient:
             all_transactions.extend(transactions)
             
             # Check if we've reached the end
-            if len(transactions) < 50:
+            if len(transactions) < 100:
                 break
             
             # Set up for next iteration
-            before_signature = transactions[-1]['signature']
+            page += 1
             
             # Rate limiting
             self.wait_for_rate_limit()

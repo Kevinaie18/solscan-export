@@ -46,12 +46,12 @@ def filter_by_value(transactions: List[Dict], min_usd: float, max_usd: float) ->
     for tx in transactions:
         # Get USD value from transaction
         value_usd = 0
-        if 'data' in tx and tx['data']:
-            activity_data = tx['data']
-            if 'amount_info' in activity_data:
-                amount_info = activity_data['amount_info']
-                if 'amount_out' in amount_info:
-                    value_usd = float(amount_info.get('amount_out', {}).get('uiAmount', 0))
+        if 'tokenTransfers' in tx:
+            transfers = tx['tokenTransfers']
+            for transfer in transfers:
+                if transfer.get('type') == 'out':
+                    value_usd = float(transfer.get('value', 0))
+                    break
         
         # Check if value is within range
         if min_usd <= value_usd <= max_usd:
@@ -95,7 +95,7 @@ def format_for_csv(transactions: List[Dict]) -> pd.DataFrame:
         # Extract basic transaction info
         signature = tx.get('signature', '')
         timestamp = datetime.fromtimestamp(tx.get('blockTime', 0)).isoformat()
-        activity_type = tx.get('activity_type', '')
+        activity_type = tx.get('activityType', '').replace('ACTIVITY_', '').lower()
         
         # Initialize default values
         token_in = ''
@@ -106,29 +106,21 @@ def format_for_csv(transactions: List[Dict]) -> pd.DataFrame:
         protocol = ''
         
         # Extract detailed transaction data
-        if 'data' in tx and tx['data']:
-            activity_data = tx['data']
+        if 'tokenTransfers' in tx:
+            transfers = tx['tokenTransfers']
             
-            # Extract tokens and amounts
-            if 'amount_info' in activity_data:
-                amount_info = activity_data['amount_info']
-                
-                # Token in
-                if 'amount_in' in amount_info:
-                    amount_in_data = amount_info['amount_in']
-                    token_in = amount_in_data.get('symbol', '')
-                    amount_in = float(amount_in_data.get('uiAmount', 0))
-                
-                # Token out
-                if 'amount_out' in amount_info:
-                    amount_out_data = amount_info['amount_out']
-                    token_out = amount_out_data.get('symbol', '')
-                    amount_out = float(amount_out_data.get('uiAmount', 0))
-                    value_usd = amount_out  # Using amount_out as USD value estimate
+            # Find input and output tokens
+            for transfer in transfers:
+                if transfer.get('type') == 'in':
+                    token_in = transfer.get('symbol', '')
+                    amount_in = float(transfer.get('amount', 0))
+                elif transfer.get('type') == 'out':
+                    token_out = transfer.get('symbol', '')
+                    amount_out = float(transfer.get('amount', 0))
+                    value_usd = float(transfer.get('value', 0))  # USD value
             
-            # Extract protocol info
-            if 'programInfo' in activity_data and activity_data['programInfo']:
-                protocol = activity_data['programInfo'].get('programName', '')
+            # Get protocol info
+            protocol = tx.get('programName', '')
         
         # Create row for CSV
         row = {

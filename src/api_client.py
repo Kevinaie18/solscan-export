@@ -7,6 +7,9 @@ import time
 from typing import Optional, Dict, List
 from datetime import datetime
 
+# Constants
+BATCH_SIZE = 100  # Helius API limit per request
+MAX_RETRIES = 3   # Maximum number of retries for failed requests
 
 class HeliusClient:
     """Client for interacting with Helius Enhanced Transactions API"""
@@ -21,7 +24,7 @@ class HeliusClient:
         self.base_url = "https://api.helius.xyz/v0"
     
     def get_transactions(self, address: str, before: Optional[str] = None, 
-                        until: Optional[str] = None, limit: int = 100, 
+                        until: Optional[str] = None, limit: int = BATCH_SIZE, 
                         commitment: str = "confirmed") -> List[Dict]:
         """Get enhanced transactions for an address (GET method as documented)
         
@@ -36,7 +39,7 @@ class HeliusClient:
             List of enhanced transactions
         """
         url = f"{self.base_url}/addresses/{address}/transactions"
-        limit = min(max(limit, 1), 100)  # Enforce 1-100 range
+        limit = min(max(limit, 1), BATCH_SIZE)  # Enforce 1-100 range
         
         params = {
             "api-key": self.api_key,
@@ -50,18 +53,38 @@ class HeliusClient:
             params["until"] = until
         
         response = None  # Initialize response variable
+        retry_count = 0
         
-        try:
-            print(f"Making request to: {url}")
-            print(f"With parameters: {params}")
-            
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            actual_url = response.url if response else url
-            print(f"Request failed with URL: {actual_url}")
-            raise Exception(f"Helius API error: {str(e)}")
+        while retry_count < MAX_RETRIES:
+            try:
+                print(f"\nMaking request to: {url}")
+                print(f"With parameters: {params}")
+                
+                response = requests.get(url, params=params, timeout=30)
+                response.raise_for_status()
+                
+                data = response.json()
+                if not isinstance(data, list):
+                    print(f"Warning: API response is not a list: {type(data)}")
+                    print(f"Response content: {data}")
+                    return []
+                
+                print(f"Successfully fetched {len(data)} transactions")
+                return data
+                
+            except requests.exceptions.RequestException as e:
+                retry_count += 1
+                actual_url = response.url if response else url
+                print(f"Request failed (attempt {retry_count}/{MAX_RETRIES})")
+                print(f"URL: {actual_url}")
+                print(f"Error: {str(e)}")
+                
+                if retry_count < MAX_RETRIES:
+                    wait_time = 2 ** retry_count  # Exponential backoff
+                    print(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    raise Exception(f"Helius API error after {MAX_RETRIES} attempts: {str(e)}")
     
     def get_all_transactions(self, address: str, start_date: datetime, end_date: datetime, max_transactions: int = 5000) -> List[Dict]:
         """Get all transactions for an address with pagination
@@ -83,10 +106,12 @@ class HeliusClient:
         all_transactions = []
         before = None
         total_fetched = 0
+        batch_count = 0
         
         while total_fetched < max_transactions:
             try:
-                print(f"\nFetching batch {len(all_transactions) // BATCH_SIZE + 1}")
+                batch_count += 1
+                print(f"\nFetching batch {batch_count}")
                 print(f"Using 'before' parameter: {before}")
                 
                 # Get transactions
@@ -116,9 +141,17 @@ class HeliusClient:
                 filtered_transactions = []
                 for tx in transactions:
                     timestamp = tx.get('timestamp', 0)
-                    tx_date = datetime.fromtimestamp(timestamp)
-                    if start_date <= tx_date <= end_date:
-                        filtered_transactions.append(tx)
+                    if not timestamp:
+                        print(f"Warning: Transaction missing timestamp: {tx.get('signature', 'NO_SIGNATURE')}")
+                        continue
+                        
+                    try:
+                        tx_date = datetime.fromtimestamp(timestamp)
+                        if start_date <= tx_date <= end_date:
+                            filtered_transactions.append(tx)
+                    except (ValueError, OSError) as e:
+                        print(f"Error processing timestamp {timestamp}: {e}")
+                        continue
                 
                 print(f"After date filtering: {len(filtered_transactions)} transactions")
                 
@@ -133,7 +166,10 @@ class HeliusClient:
                 
                 # Update before parameter for next page
                 if len(transactions) == BATCH_SIZE:
-                    before = transactions[-1]['signature']
+                    before = transactions[-1].get('signature')
+                    if not before:
+                        print("Warning: Last transaction missing signature")
+                        break
                     print(f"Setting 'before' to: {before}")
                 else:
                     print("Last batch received, stopping pagination")
@@ -147,7 +183,9 @@ class HeliusClient:
                 break
         
         print(f"\n=== FETCH COMPLETE ===")
+        print(f"Total batches processed: {batch_count}")
         print(f"Total transactions fetched: {len(all_transactions)}")
+        
         if all_transactions:
             print("\nFirst transaction:")
             first_tx = all_transactions[0]
@@ -164,6 +202,8 @@ class HeliusClient:
             print(f"  Type: {last_tx.get('type', 'NO_TYPE')}")
             print(f"  Source: {last_tx.get('source', 'NO_SOURCE')}")
             print(f"  Description: {last_tx.get('description', 'NO_DESCRIPTION')}")
+        else:
+            print("\nNo transactions were fetched")
         
         return all_transactions
     

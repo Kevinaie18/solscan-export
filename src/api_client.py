@@ -57,27 +57,47 @@ class HeliusClient:
         
         while retry_count < MAX_RETRIES:
             try:
-                print(f"\nMaking request to: {url}")
-                print(f"With parameters: {params}")
+                print(f"\n=== API REQUEST ===")
+                print(f"URL: {url}")
+                print(f"Parameters: {params}")
                 
                 response = requests.get(url, params=params, timeout=30)
+                print(f"Response status: {response.status_code}")
+                
                 response.raise_for_status()
                 
                 data = response.json()
+                print(f"\nResponse type: {type(data)}")
+                print(f"Response content: {data}")
+                
                 if not isinstance(data, list):
                     print(f"Warning: API response is not a list: {type(data)}")
                     print(f"Response content: {data}")
                     return []
                 
-                print(f"Successfully fetched {len(data)} transactions")
+                print(f"\nSuccessfully fetched {len(data)} transactions")
+                if data:
+                    print("\nFirst transaction in response:")
+                    first_tx = data[0]
+                    print(f"  Keys: {list(first_tx.keys())}")
+                    print(f"  Signature: {first_tx.get('signature', 'NO_SIGNATURE')}")
+                    print(f"  Timestamp: {first_tx.get('timestamp', 'NO_TIMESTAMP')}")
+                    print(f"  Type: {first_tx.get('type', 'NO_TYPE')}")
+                    print(f"  Source: {first_tx.get('source', 'NO_SOURCE')}")
+                    print(f"  Description: {first_tx.get('description', 'NO_DESCRIPTION')}")
+                
                 return data
                 
             except requests.exceptions.RequestException as e:
                 retry_count += 1
                 actual_url = response.url if response else url
-                print(f"Request failed (attempt {retry_count}/{MAX_RETRIES})")
+                print(f"\n=== API ERROR ===")
+                print(f"Attempt {retry_count}/{MAX_RETRIES}")
                 print(f"URL: {actual_url}")
                 print(f"Error: {str(e)}")
+                if response:
+                    print(f"Response status: {response.status_code}")
+                    print(f"Response content: {response.text}")
                 
                 if retry_count < MAX_RETRIES:
                     wait_time = 2 ** retry_count  # Exponential backoff

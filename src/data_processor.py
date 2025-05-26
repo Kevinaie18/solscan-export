@@ -60,36 +60,30 @@ def debug_transaction_structure(transactions: List[Any]) -> None:
     print("\n=== END DEBUG ===")
 
 def validate_transactions(transactions: Any) -> List[Dict]:
-    """Validate and clean transaction data with enhanced debugging
-    
-    Args:
-        transactions: Raw transaction data
-        
-    Returns:
-        Cleaned transaction list
-    """
+    """Validate and clean transaction data with enhanced debugging"""
     print(f"\n=== VALIDATING TRANSACTIONS ===")
     print(f"Input type: {type(transactions)}")
+    print(f"Input content: {transactions}")
     
     # Handle different input types
     if transactions is None:
-        print("Transactions is None")
+        print("❌ Transactions is None")
         return []
     
     if isinstance(transactions, str):
-        print(f"Transactions is a string: {transactions[:100]}...")
+        print(f"❌ Transactions is a string: {transactions[:100]}...")
         return []
     
     if not isinstance(transactions, list):
-        print(f"Transactions is not a list, trying to convert: {type(transactions)}")
+        print(f"❌ Transactions is not a list, trying to convert: {type(transactions)}")
         try:
             transactions = list(transactions)
         except:
-            print("Could not convert to list")
+            print("❌ Could not convert to list")
             return []
     
     if not transactions:
-        print("Transactions list is empty")
+        print("❌ Transactions list is empty")
         return []
     
     print(f"\nProcessing {len(transactions)} transactions")
@@ -288,7 +282,7 @@ def filter_by_type(transactions: List[Dict], types: List[str]) -> List[Dict]:
     print(f"Requested types: {types}")
     
     if not transactions or not types:
-        print("No transactions or types to filter")
+        print("❌ No transactions or types to filter")
         return []
     
     filtered = []
@@ -298,7 +292,7 @@ def filter_by_type(transactions: List[Dict], types: List[str]) -> List[Dict]:
     for i, tx in enumerate(transactions):
         try:
             if not isinstance(tx, dict):
-                print(f"Transaction {i} is not a dict in type filter: {type(tx)}")
+                print(f"❌ Transaction {i} is not a dict in type filter: {type(tx)}")
                 continue
             
             tx_type = safe_get(tx, 'type', '').lower()
@@ -341,13 +335,13 @@ def filter_by_type(transactions: List[Dict], types: List[str]) -> List[Dict]:
                 print(f"  DEX match: {dex_match}")
             
             if is_match:
-                print(f"  INCLUDED: Matched type filter")
+                print(f"  ✅ INCLUDED: Matched type filter")
                 filtered.append(tx)
             else:
-                print(f"  EXCLUDED: No type match")
+                print(f"  ❌ EXCLUDED: No type match")
                 
         except Exception as e:
-            print(f"Error processing transaction {i} in type filter: {e}")
+            print(f"❌ Error processing transaction {i} in type filter: {e}")
             continue
     
     print(f"\nFiltered by type: {len(filtered)} transactions")

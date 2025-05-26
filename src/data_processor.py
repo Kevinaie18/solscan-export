@@ -404,3 +404,101 @@ def extract_token_info_safe(tx: Dict) -> tuple:
     except Exception as e:
         print(f"Error in extract_token_info_safe: {e}")
         return '', '', 0, 0, 0
+
+def get_transaction_summary(transactions: List[Dict]) -> Dict:
+    """Get summary statistics for transactions
+    
+    Args:
+        transactions: List of transaction dictionaries
+        
+    Returns:
+        Dictionary with summary statistics
+    """
+    if not transactions:
+        return {
+            'total_count': 0,
+            'unique_protocols': 0,
+            'swap_count': 0,
+            'agg_swap_count': 0,
+            'total_value_usd': 0,
+            'date_range': 'No transactions',
+            'transaction_types': []
+        }
+    
+    valid_transactions = [tx for tx in transactions if tx is not None]
+    
+    if not valid_transactions:
+        return {
+            'total_count': 0,
+            'unique_protocols': 0,
+            'swap_count': 0,
+            'agg_swap_count': 0,
+            'total_value_usd': 0,
+            'date_range': 'No valid transactions',
+            'transaction_types': []
+        }
+    
+    # Get unique protocols and types
+    protocols = set()
+    tx_types = set()
+    total_value = 0
+    timestamps = []
+    swap_count = 0
+    agg_swap_count = 0
+    
+    for tx in valid_transactions:
+        source = tx.get('source', 'UNKNOWN')
+        tx_type = tx.get('type', 'UNKNOWN')
+        description = tx.get('description', '').lower()
+        
+        if source:
+            protocols.add(source)
+        if tx_type:
+            tx_types.add(tx_type)
+        
+        # Count swap types
+        if source == 'JUPITER' or 'jupiter' in description or 'aggregate' in description:
+            agg_swap_count += 1
+        elif tx_type in ['SWAP', 'SWAP_EXACT_OUT'] or source in ['RAYDIUM', 'ORCA', 'SERUM']:
+            swap_count += 1
+        
+        # Calculate value
+        value_usd = 0
+        if 'tokenTransfers' in tx:
+            for transfer in tx['tokenTransfers']:
+                if 'usdTokenPrice' in transfer:
+                    amount = float(transfer.get('amount', 0))
+                    price = float(transfer.get('usdTokenPrice', 0))
+                    value_usd += amount * price
+        
+        if 'nativeTransfers' in tx:
+            for transfer in tx['nativeTransfers']:
+                if 'usdTokenPrice' in transfer:
+                    amount = float(transfer.get('amount', 0))
+                    price = float(transfer.get('usdTokenPrice', 0))
+                    value_usd += amount * price
+        
+        total_value += value_usd
+        
+        timestamp = tx.get('timestamp', 0)
+        if timestamp:
+            timestamps.append(timestamp)
+    
+    # Get date range
+    if timestamps:
+        min_date = datetime.fromtimestamp(min(timestamps)).strftime('%Y-%m-%d')
+        max_date = datetime.fromtimestamp(max(timestamps)).strftime('%Y-%m-%d')
+        date_range = f"{min_date} to {max_date}"
+    else:
+        date_range = 'Unknown date range'
+    
+    return {
+        'total_count': len(valid_transactions),
+        'unique_protocols': len(protocols),
+        'swap_count': swap_count,
+        'agg_swap_count': agg_swap_count,
+        'total_value_usd': round(total_value, 2),
+        'date_range': date_range,
+        'transaction_types': list(tx_types),
+        'protocols': list(protocols)
+    }

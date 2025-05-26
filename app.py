@@ -8,13 +8,31 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 
-# Import our modules (using the updated versions)
-from src.api_client import HeliusClient
-from src.data_processor import (
-    filter_by_date, filter_by_value, filter_by_type, format_for_csv, 
-    validate_transactions, get_transaction_summary, BATCH_SIZE, MAX_TRANSACTIONS
-)
-from src.export_handler import create_export_interface
+# Import our modules - Fixed import paths
+try:
+    from src.api_client import HeliusClient
+    from src.data_processor import (
+        filter_by_date, filter_by_value, filter_by_type, format_for_csv, 
+        validate_transactions, get_transaction_summary, BATCH_SIZE, MAX_TRANSACTIONS
+    )
+    from src.export_handler import create_export_interface
+except ImportError:
+    # Fallback imports if src folder structure doesn't work
+    try:
+        import sys
+        import os
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        
+        from api_client import HeliusClient
+        from data_processor import (
+            filter_by_date, filter_by_value, filter_by_type, format_for_csv, 
+            validate_transactions, get_transaction_summary, BATCH_SIZE, MAX_TRANSACTIONS
+        )
+        from export_handler import create_export_interface
+    except ImportError as e:
+        st.error(f"Import Error: {e}")
+        st.error("Please check that all required files are in the correct location")
+        st.stop()
 
 # Page configuration
 st.set_page_config(

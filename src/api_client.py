@@ -63,72 +63,107 @@ class HeliusClient:
             print(f"Request failed with URL: {actual_url}")
             raise Exception(f"Helius API error: {str(e)}")
     
-    def get_all_transactions(self, address: str, start_date: datetime, 
-                           end_date: datetime, max_transactions: int = 5000) -> List[Dict]:
-        """Get all transactions using pagination (respecting 100 limit per call)
+    def get_all_transactions(self, address: str, start_date: datetime, end_date: datetime, max_transactions: int = 5000) -> List[Dict]:
+        """Get all transactions for an address with pagination
         
         Args:
             address: Wallet address
-            start_date: Start date filter
-            end_date: End date filter
+            start_date: Start date for filtering
+            end_date: End date for filtering
             max_transactions: Maximum number of transactions to fetch
             
         Returns:
-            List of all transactions (raw, unfiltered)
+            List of transaction dictionaries
         """
+        print(f"\n=== FETCHING ALL TRANSACTIONS ===")
+        print(f"Address: {address}")
+        print(f"Date range: {start_date} to {end_date}")
+        print(f"Max transactions: {max_transactions}")
+        
         all_transactions = []
-        before_signature = None
-        start_timestamp = int(start_date.timestamp())
-        end_timestamp = int(end_date.timestamp())
+        before = None
+        total_fetched = 0
         
-        print(f"Starting transaction fetch with max_transactions={max_transactions}")
-        
-        while len(all_transactions) < max_transactions:
+        while total_fetched < max_transactions:
             try:
-                print(f"Fetching batch with before_signature={before_signature}")
+                print(f"\nFetching batch {len(all_transactions) // BATCH_SIZE + 1}")
+                print(f"Using 'before' parameter: {before}")
+                
+                # Get transactions
                 transactions = self.get_transactions(
                     address=address,
-                    before=before_signature,
-                    limit=100
+                    before=before,
+                    limit=BATCH_SIZE
                 )
                 
                 if not transactions:
                     print("No more transactions found")
                     break
                 
-                # Filter by date range
-                filtered_tx = []
+                print(f"Fetched {len(transactions)} transactions in this batch")
+                
+                # Debug first transaction in batch
+                if transactions:
+                    first_tx = transactions[0]
+                    print("\nFirst transaction in batch:")
+                    print(f"  Signature: {first_tx.get('signature', 'NO_SIGNATURE')}")
+                    print(f"  Timestamp: {first_tx.get('timestamp', 'NO_TIMESTAMP')}")
+                    print(f"  Type: {first_tx.get('type', 'NO_TYPE')}")
+                    print(f"  Source: {first_tx.get('source', 'NO_SOURCE')}")
+                    print(f"  Description: {first_tx.get('description', 'NO_DESCRIPTION')}")
+                
+                # Filter by date
+                filtered_transactions = []
                 for tx in transactions:
-                    tx_timestamp = tx.get('timestamp', 0)
-                    if start_timestamp <= tx_timestamp <= end_timestamp:
-                        filtered_tx.append(tx)
+                    timestamp = tx.get('timestamp', 0)
+                    tx_date = datetime.fromtimestamp(timestamp)
+                    if start_date <= tx_date <= end_date:
+                        filtered_transactions.append(tx)
                 
-                all_transactions.extend(filtered_tx)
-                print(f"Fetched {len(filtered_tx)} transactions (total: {len(all_transactions)})")
+                print(f"After date filtering: {len(filtered_transactions)} transactions")
                 
-                # Check if we've reached the start date
-                if transactions and transactions[-1].get('timestamp', 0) < start_timestamp:
-                    print("Reached start date, stopping pagination")
+                if not filtered_transactions:
+                    print("No transactions in date range, stopping pagination")
                     break
                 
-                # Check if we got less than 100 (last page)
-                if len(transactions) < 100:
-                    print("Reached last page")
-                    break
+                all_transactions.extend(filtered_transactions)
+                total_fetched = len(all_transactions)
                 
-                # Set up for next iteration
-                before_signature = transactions[-1].get('signature')
+                print(f"Total transactions so far: {total_fetched}")
                 
-                if not before_signature:
-                    print("No signature found for pagination")
+                # Update before parameter for next page
+                if len(transactions) == BATCH_SIZE:
+                    before = transactions[-1]['signature']
+                    print(f"Setting 'before' to: {before}")
+                else:
+                    print("Last batch received, stopping pagination")
                     break
                 
                 # Rate limiting
-                time.sleep(0.1)
+                time.sleep(0.1)  # 100ms delay
                 
             except Exception as e:
-                print(f"Error fetching batch: {e}")
+                print(f"Error fetching transactions: {e}")
                 break
+        
+        print(f"\n=== FETCH COMPLETE ===")
+        print(f"Total transactions fetched: {len(all_transactions)}")
+        if all_transactions:
+            print("\nFirst transaction:")
+            first_tx = all_transactions[0]
+            print(f"  Signature: {first_tx.get('signature', 'NO_SIGNATURE')}")
+            print(f"  Timestamp: {first_tx.get('timestamp', 'NO_TIMESTAMP')}")
+            print(f"  Type: {first_tx.get('type', 'NO_TYPE')}")
+            print(f"  Source: {first_tx.get('source', 'NO_SOURCE')}")
+            print(f"  Description: {first_tx.get('description', 'NO_DESCRIPTION')}")
+            
+            print("\nLast transaction:")
+            last_tx = all_transactions[-1]
+            print(f"  Signature: {last_tx.get('signature', 'NO_SIGNATURE')}")
+            print(f"  Timestamp: {last_tx.get('timestamp', 'NO_TIMESTAMP')}")
+            print(f"  Type: {last_tx.get('type', 'NO_TYPE')}")
+            print(f"  Source: {last_tx.get('source', 'NO_SOURCE')}")
+            print(f"  Description: {last_tx.get('description', 'NO_DESCRIPTION')}")
         
         return all_transactions
     

@@ -134,6 +134,20 @@ class HeliusClient:
         print(f"Date range: {start_date} to {end_date}")
         print(f"Max transactions: {max_transactions}")
         
+        # Validate date range
+        if start_date > end_date:
+            print("⚠️ WARNING: Start date is after end date!")
+            print(f"Start: {start_date}")
+            print(f"End: {end_date}")
+            return []
+            
+        # Convert dates to timestamps for comparison
+        start_timestamp = int(start_date.timestamp())
+        end_timestamp = int(end_date.timestamp())
+        print(f"\nDate range timestamps:")
+        print(f"Start timestamp: {start_timestamp} ({start_date})")
+        print(f"End timestamp: {end_timestamp} ({end_date})")
+        
         all_transactions = []
         before = None
         total_fetched = 0
@@ -186,15 +200,15 @@ class HeliusClient:
                         print(f"  Timestamp: {timestamp}")
                         print(f"  Date: {tx_date}")
                         
-                        if start_date <= tx_date <= end_date:
+                        if start_timestamp <= timestamp <= end_timestamp:
                             print(f"  ✅ INCLUDED: Within date range")
                             filtered_transactions.append(tx)
                         else:
                             print(f"  ❌ EXCLUDED: Outside date range")
-                            if tx_date < start_date:
-                                print(f"    Before start date")
+                            if timestamp < start_timestamp:
+                                print(f"    Before start date (diff: {start_timestamp - timestamp} seconds)")
                             else:
-                                print(f"    After end date")
+                                print(f"    After end date (diff: {timestamp - end_timestamp} seconds)")
                     except (ValueError, OSError) as e:
                         print(f"Error processing timestamp {timestamp}: {e}")
                         continue

@@ -20,7 +20,6 @@ class HeliusClient:
         self.api_key = api_key
         self.base_url = "https://api.helius.xyz/v0"
         self.headers = {
-            "Authorization": f"Bearer {api_key}",
             "User-Agent": "DeFi-Export-Tool/1.0"
         }
     
@@ -39,6 +38,7 @@ class HeliusClient:
         url = f"{self.base_url}/addresses/{address}/transactions"
         
         params = {
+            "api-key": self.api_key,
             "limit": min(limit, 1000)  # Helius max is 1000
         }
         

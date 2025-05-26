@@ -117,78 +117,89 @@ def format_for_csv(transactions: List[Dict]) -> pd.DataFrame:
     formatted_data = []
     
     for tx in transactions:
-        # Extract basic transaction info
-        signature = tx.get('signature', '')
-        timestamp = datetime.fromtimestamp(tx.get('timestamp', 0)).isoformat()
-        activity_type = tx.get('type', '')
-        source = tx.get('source', '')
-        
-        # Initialize default values
-        token_in = ''
-        token_out = ''
-        amount_in = 0
-        amount_out = 0
-        value_usd = 0
-        protocol = source  # Use source as protocol
-        
-        # Extract detailed transaction data from events if available
-        if 'events' in tx and 'swap' in tx['events']:
-            swap_event = tx['events']['swap']
+        try:
+            # Extract basic transaction info
+            signature = tx.get('signature', '')
+            timestamp = datetime.fromtimestamp(tx.get('timestamp', 0)).isoformat()
+            activity_type = tx.get('type', '')
+            source = tx.get('source', '')
             
-            # Get native transfers
-            if 'nativeInput' in swap_event:
-                amount_in = float(swap_event['nativeInput'].get('amount', 0)) / 1e9  # Convert lamports to SOL
-                token_in = 'SOL'
-            if 'nativeOutput' in swap_event:
-                amount_out = float(swap_event['nativeOutput'].get('amount', 0)) / 1e9  # Convert lamports to SOL
-                token_out = 'SOL'
+            # Initialize default values
+            token_in = ''
+            token_out = ''
+            amount_in = 0
+            amount_out = 0
+            value_usd = 0
+            protocol = source  # Use source as protocol
             
-            # Get token transfers from inner swaps
-            if 'innerSwaps' in swap_event:
-                for inner_swap in swap_event['innerSwaps']:
-                    if 'tokenInputs' in inner_swap and inner_swap['tokenInputs']:
-                        input_transfer = inner_swap['tokenInputs'][0]
-                        if not token_in:  # Only set if not already set by native transfer
-                            token_in = input_transfer.get('mint', '')
-                            amount_in = float(input_transfer.get('tokenAmount', 0))
-                    
-                    if 'tokenOutputs' in inner_swap and inner_swap['tokenOutputs']:
-                        output_transfer = inner_swap['tokenOutputs'][0]
-                        if not token_out:  # Only set if not already set by native transfer
-                            token_out = output_transfer.get('mint', '')
-                            amount_out = float(output_transfer.get('tokenAmount', 0))
-        
-        # If no events data, try token transfers
-        if not token_in and not token_out and 'tokenTransfers' in tx:
-            transfers = tx['tokenTransfers']
+            # Extract detailed transaction data from events if available
+            if 'events' in tx and 'swap' in tx['events']:
+                print(f"Processing swap event for tx {signature}")
+                swap_event = tx['events']['swap']
+                
+                # Get native transfers
+                if 'nativeInput' in swap_event:
+                    print(f"Found nativeInput: {swap_event['nativeInput']}")
+                    amount_in = float(swap_event['nativeInput'].get('amount', 0)) / 1e9  # Convert lamports to SOL
+                    token_in = 'SOL'
+                if 'nativeOutput' in swap_event:
+                    print(f"Found nativeOutput: {swap_event['nativeOutput']}")
+                    amount_out = float(swap_event['nativeOutput'].get('amount', 0)) / 1e9  # Convert lamports to SOL
+                    token_out = 'SOL'
+                
+                # Get token transfers from inner swaps
+                if 'innerSwaps' in swap_event:
+                    print(f"Found innerSwaps: {swap_event['innerSwaps']}")
+                    for inner_swap in swap_event['innerSwaps']:
+                        if 'tokenInputs' in inner_swap and inner_swap['tokenInputs']:
+                            input_transfer = inner_swap['tokenInputs'][0]
+                            if not token_in:  # Only set if not already set by native transfer
+                                token_in = input_transfer.get('mint', '')
+                                amount_in = float(input_transfer.get('tokenAmount', 0))
+                        
+                        if 'tokenOutputs' in inner_swap and inner_swap['tokenOutputs']:
+                            output_transfer = inner_swap['tokenOutputs'][0]
+                            if not token_out:  # Only set if not already set by native transfer
+                                token_out = output_transfer.get('mint', '')
+                                amount_out = float(output_transfer.get('tokenAmount', 0))
             
-            # Find input and output tokens
-            for transfer in transfers:
-                if transfer.get('type') == 'in' or transfer.get('fromUserAccount') == tx.get('feePayer'):
-                    if not token_in:
-                        token_in = transfer.get('mint', '')
-                        amount_in = float(transfer.get('tokenAmount', 0))
-                elif transfer.get('type') == 'out' or transfer.get('toUserAccount') == tx.get('feePayer'):
-                    if not token_out:
-                        token_out = transfer.get('mint', '')
-                        amount_out = float(transfer.get('tokenAmount', 0))
-                        if 'usdTokenPrice' in transfer:
-                            value_usd = amount_out * float(transfer.get('usdTokenPrice', 0))
-        
-        # Create row for CSV
-        row = {
-            'signature': signature,
-            'timestamp': timestamp,
-            'activity_type': activity_type,
-            'token_in': token_in,
-            'token_out': token_out,
-            'amount_in': amount_in,
-            'amount_out': amount_out,
-            'value_usd': value_usd,
-            'protocol': protocol
-        }
-        
-        formatted_data.append(row)
+            # If no events data, try token transfers
+            if not token_in and not token_out and 'tokenTransfers' in tx:
+                print(f"Processing token transfers for tx {signature}")
+                transfers = tx['tokenTransfers']
+                
+                # Find input and output tokens
+                for transfer in transfers:
+                    print(f"Processing transfer: {transfer}")
+                    if transfer.get('type') == 'in' or transfer.get('fromUserAccount') == tx.get('feePayer'):
+                        if not token_in:
+                            token_in = transfer.get('mint', '')
+                            amount_in = float(transfer.get('tokenAmount', 0))
+                    elif transfer.get('type') == 'out' or transfer.get('toUserAccount') == tx.get('feePayer'):
+                        if not token_out:
+                            token_out = transfer.get('mint', '')
+                            amount_out = float(transfer.get('tokenAmount', 0))
+                            if 'usdTokenPrice' in transfer:
+                                value_usd = amount_out * float(transfer.get('usdTokenPrice', 0))
+            
+            # Create row for CSV
+            row = {
+                'signature': signature,
+                'timestamp': timestamp,
+                'activity_type': activity_type,
+                'token_in': token_in,
+                'token_out': token_out,
+                'amount_in': amount_in,
+                'amount_out': amount_out,
+                'value_usd': value_usd,
+                'protocol': protocol
+            }
+            
+            formatted_data.append(row)
+        except Exception as e:
+            print(f"Error processing transaction {tx.get('signature', 'unknown')}: {str(e)}")
+            print(f"Transaction data: {tx}")
+            continue
     
     # Create DataFrame with specified columns
     df = pd.DataFrame(formatted_data)

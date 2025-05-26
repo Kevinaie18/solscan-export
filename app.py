@@ -8,31 +8,14 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 
-# Import our modules - Fixed import paths
-try:
-    from src.api_client import HeliusClient
-    from src.data_processor import (
-        filter_by_date, filter_by_value, filter_by_type, format_for_csv, 
-        validate_transactions, get_transaction_summary, BATCH_SIZE, MAX_TRANSACTIONS
-    )
-    from src.export_handler import create_export_interface
-except ImportError:
-    # Fallback imports if src folder structure doesn't work
-    try:
-        import sys
-        import os
-        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-        
-        from api_client import HeliusClient
-        from data_processor import (
-            filter_by_date, filter_by_value, filter_by_type, format_for_csv, 
-            validate_transactions, get_transaction_summary, BATCH_SIZE, MAX_TRANSACTIONS
-        )
-        from export_handler import create_export_interface
-    except ImportError as e:
-        st.error(f"Import Error: {e}")
-        st.error("Please check that all required files are in the correct location")
-        st.stop()
+# Import our modules - Updated for your architecture
+from src.api_client import HeliusClient
+from src.data_processor import (
+    filter_by_date, filter_by_value, filter_by_type, format_for_csv, 
+    validate_transactions, get_transaction_summary, BATCH_SIZE, MAX_TRANSACTIONS
+)
+from src.export_handler import create_export_interface
+from src.utils import validate_solana_address, format_currency, validate_date_range, generate_export_filename
 
 # Page configuration
 st.set_page_config(
@@ -41,17 +24,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-
-def validate_solana_address(address: str) -> bool:
-    """Basic Solana address validation"""
-    if not address:
-        return False
-    # Solana addresses are base58 encoded and typically 32-44 characters
-    return len(address) >= 32 and len(address) <= 44 and address.isalnum()
-
-def format_currency(amount: float) -> str:
-    """Format currency with proper commas and decimals"""
-    return f"${amount:,.2f}"
 
 def main():
     """Main application function"""
@@ -168,16 +140,20 @@ def main():
         else:
             st.info("ℹ️ Enter wallet address")
         
-        # Date validation
+        # Date validation using utility function
         if start_date and end_date:
-            if start_date <= end_date:
-                days_diff = (end_date - start_date).days
-                if days_diff > 90:
-                    st.warning(f"⚠️ Large date range: {days_diff} days (may take longer)")
+            start_datetime = datetime.combine(start_date, datetime.min.time())
+            end_datetime = datetime.combine(end_date, datetime.max.time())
+            
+            date_validation = validate_date_range(start_datetime, end_datetime)
+            
+            if date_validation['valid']:
+                if date_validation.get('warning', False):
+                    st.warning(f"⚠️ {date_validation['message']}")
                 else:
-                    st.info(f"📅 Date range: {days_diff} days")
+                    st.info(f"📅 Date range: {date_validation['days']} days")
             else:
-                st.error("❌ Start date must be before end date")
+                st.error(f"❌ {date_validation['message']}")
         
         # Value range validation
         if not use_max_value:

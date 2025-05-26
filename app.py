@@ -9,7 +9,7 @@ import time
 
 # Import our modules
 from src.api_client import HeliusClient
-from src.data_processor import filter_by_date, filter_by_value, filter_by_type, format_for_csv
+from src.data_processor import filter_by_date, filter_by_value, filter_by_type, format_for_csv, BATCH_SIZE, MAX_TRANSACTIONS
 from src.export_handler import generate_csv, create_download_link, validate_export_size, get_export_summary
 from src.utils import validate_solana_address, format_currency, validate_date_range, generate_export_filename
 
@@ -164,6 +164,9 @@ def main():
         # Token mint filter
         if token_mint:
             st.info(f"🪙 Token: {token_mint}")
+        
+        # API limits info
+        st.info(f"📊 API Limits:\n- Batch size: {BATCH_SIZE} transactions\n- Maximum: {MAX_TRANSACTIONS} transactions")
     
     # Export section
     st.markdown("---")
@@ -248,45 +251,35 @@ def main():
             
             # Format for CSV
             df = format_for_csv(filtered_transactions)
-            progress_bar.progress(90)
             
             # Validate export size
             if not validate_export_size(df):
-                st.error(f"❌ Export too large: {len(df)} rows (max 10,000)")
-                st.info("Try reducing your date range or adjusting filters")
+                st.error(f"❌ Export size exceeds maximum limit of {MAX_TRANSACTIONS} transactions")
                 st.stop()
             
-            progress_bar.progress(100)
-            status_text.text("✅ Export ready!")
+            # Get export summary
+            summary = get_export_summary(df)
             
             # Display summary
-            if len(df) > 0:
-                summary = get_export_summary(df)
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Total Transactions", summary['total_transactions'])
-                with col2:
-                    st.metric("Total Value (USD)", format_currency(summary['total_value']))
-                with col3:
-                    st.metric("Average Value (USD)", format_currency(summary['avg_value']))
-                
-                # Display data
-                st.dataframe(df)
-                
-                # Export options
-                st.download_button(
-                    label="📥 Download CSV",
-                    data=generate_csv(df),
-                    file_name=generate_export_filename(wallet),
-                    mime="text/csv"
-                )
-            else:
-                st.warning("No transactions found matching your criteria")
-        
+            st.success(f"✅ Successfully processed {summary['total_transactions']} transactions")
+            st.info(f"💰 Total value: {format_currency(summary['total_value_usd'])}")
+            st.info(f"🏢 Unique protocols: {summary['unique_protocols']}")
+            
+            if summary['date_range']['start'] and summary['date_range']['end']:
+                st.info(f"📅 Date range: {summary['date_range']['start']} to {summary['date_range']['end']}")
+            
+            # Generate and provide download link
+            csv_data = generate_csv(df)
+            filename = generate_export_filename(wallet, start_date, end_date)
+            create_download_link(csv_data, filename)
+            
+            progress_bar.progress(100)
+            status_text.text("✅ Export complete!")
+            
         except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
-            st.info("Please try again or adjust your filters")
+            st.error(f"❌ Error during export: {str(e)}")
+            progress_bar.progress(0)
+            status_text.text("❌ Export failed")
 
 if __name__ == "__main__":
     main() 

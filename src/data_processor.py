@@ -6,6 +6,9 @@ import pandas as pd
 from datetime import datetime
 from typing import List, Dict
 
+# Constants for batch processing
+BATCH_SIZE = 100  # New Helius API limit
+MAX_TRANSACTIONS = 5000  # Maximum transactions to process
 
 def filter_by_date(transactions: List[Dict], start_date: datetime, end_date: datetime) -> List[Dict]:
     """Filter transactions by date range

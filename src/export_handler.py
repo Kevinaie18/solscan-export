@@ -8,6 +8,9 @@ import streamlit as st
 from typing import Union
 from datetime import datetime
 
+# Constants for export limits
+MAX_ROWS = 5000  # Maximum rows for export (aligned with API client limit)
+BATCH_SIZE = 100  # New Helius API limit
 
 def generate_csv(df: pd.DataFrame) -> io.StringIO:
     """Generate CSV data from DataFrame
@@ -61,9 +64,8 @@ def validate_export_size(df: pd.DataFrame) -> bool:
     Returns:
         True if size is acceptable, False otherwise
     """
-    # Basic size validation
-    max_rows = 10000  # Maximum rows for export
-    return len(df) <= max_rows
+    # Basic size validation aligned with API client limit
+    return len(df) <= MAX_ROWS
 
 
 def get_export_summary(df: pd.DataFrame) -> dict:
@@ -82,6 +84,8 @@ def get_export_summary(df: pd.DataFrame) -> dict:
         'date_range': {
             'start': df['timestamp'].min() if 'timestamp' in df.columns and len(df) > 0 else None,
             'end': df['timestamp'].max() if 'timestamp' in df.columns and len(df) > 0 else None
-        }
+        },
+        'batch_size': BATCH_SIZE,
+        'max_transactions': MAX_ROWS
     }
     return summary 

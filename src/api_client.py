@@ -159,10 +159,11 @@ class HeliusClient:
                 print(f"\nFetching batch {batch_count}")
                 print(f"Using 'before' parameter: {before}")
                 
-                # Get transactions
+                # Get transactions with until parameter to filter by end date
                 transactions = self.get_transactions(
                     address=address,
                     before=before,
+                    until=None,  # We'll filter by start date in code
                     limit=BATCH_SIZE
                 )
                 
@@ -207,6 +208,9 @@ class HeliusClient:
                             print(f"  ❌ EXCLUDED: Outside date range")
                             if timestamp < start_timestamp:
                                 print(f"    Before start date (diff: {start_timestamp - timestamp} seconds)")
+                                # If we're getting transactions before our start date, we can stop paginating
+                                print("Stopping pagination - reached transactions before start date")
+                                return all_transactions
                             else:
                                 print(f"    After end date (diff: {timestamp - end_timestamp} seconds)")
                     except (ValueError, OSError) as e:

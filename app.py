@@ -1,5 +1,6 @@
 """
-DeFi Transaction Export Tool - Main Streamlit Application
+DeFi Transaction Export Tool - Updated Streamlit Application
+Aligned with data processor and export handler
 """
 
 import streamlit as st
@@ -7,11 +8,13 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 
-# Import our modules
+# Import our modules (using the updated versions)
 from src.api_client import HeliusClient
-from src.data_processor import filter_by_date, filter_by_value, filter_by_type, format_for_csv, BATCH_SIZE, MAX_TRANSACTIONS
-from src.export_handler import generate_csv, create_download_link, validate_export_size, get_export_summary
-from src.utils import validate_solana_address, format_currency, validate_date_range, generate_export_filename
+from src.data_processor import (
+    filter_by_date, filter_by_value, filter_by_type, format_for_csv, 
+    validate_transactions, get_transaction_summary, BATCH_SIZE, MAX_TRANSACTIONS
+)
+from src.export_handler import create_export_interface
 
 # Page configuration
 st.set_page_config(
@@ -21,11 +24,16 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-def convert_to_timestamp(date_obj) -> int:
-    """Convert date object to Unix timestamp"""
-    if hasattr(date_obj, 'timestamp'):
-        return int(date_obj.timestamp())
-    return int(datetime.combine(date_obj, datetime.min.time()).timestamp())
+def validate_solana_address(address: str) -> bool:
+    """Basic Solana address validation"""
+    if not address:
+        return False
+    # Solana addresses are base58 encoded and typically 32-44 characters
+    return len(address) >= 32 and len(address) <= 44 and address.isalnum()
+
+def format_currency(amount: float) -> str:
+    """Format currency with proper commas and decimals"""
+    return f"${amount:,.2f}"
 
 def main():
     """Main application function"""
@@ -35,7 +43,7 @@ def main():
     # Check for API key
     try:
         api_key = st.secrets["api"]["helius_key"]
-        if api_key == "your_key_here":
+        if not api_key or api_key == "your_key_here":
             st.error("⚠️ Please configure your Helius API key in .streamlit/secrets.toml")
             st.info("Get your free API key at: https://dev.helius.xyz/")
             st.stop()
@@ -105,20 +113,30 @@ def main():
             else:
                 max_value = float('inf')  # No maximum value limit
         
-        # Transaction type selection
-        tx_types = st.multiselect(
-            "Transaction Types",
-            options=["SWAP", "AGGREGATOR_SWAP"],
-            default=["SWAP", "AGGREGATOR_SWAP"],
-            help="Select which types of DeFi transactions to include"
+        # Transaction type selection - FIXED TO MATCH DATA PROCESSOR
+        st.markdown("**Transaction Types**")
+        
+        # User-friendly interface with proper mapping
+        transaction_options = {
+            "Regular Swaps": "swap",           # Maps to lowercase "swap"
+            "Aggregated Swaps": "agg_swap"     # Maps to lowercase "agg_swap"
+        }
+        
+        selected_labels = st.multiselect(
+            "Select transaction types:",
+            options=list(transaction_options.keys()),
+            default=list(transaction_options.keys()),  # Select both by default
+            help="• **Regular Swaps**: Direct trades on DEXs like Raydium, Orca, Serum\n• **Aggregated Swaps**: Jupiter routes through multiple DEXs for best price"
         )
         
-        # Optional token mint filter
-        token_mint = st.text_input(
-            "Token Mint (Optional)",
-            placeholder="Enter token mint address to filter by specific token",
-            help="Filter transactions by a specific token mint address"
-        )
+        # Convert to values expected by data processor
+        tx_types = [transaction_options[label] for label in selected_labels]
+        
+        # Show what's selected
+        if tx_types:
+            st.info(f"✅ Selected: {', '.join(selected_labels)}")
+        else:
+            st.warning("⚠️ No transaction types selected")
     
     with col2:
         st.subheader("📋 Export Summary")
@@ -132,20 +150,16 @@ def main():
         else:
             st.info("ℹ️ Enter wallet address")
         
-        # Date validation using utility function
+        # Date validation
         if start_date and end_date:
-            date_validation = validate_date_range(
-                datetime.combine(start_date, datetime.min.time()),
-                datetime.combine(end_date, datetime.max.time())
-            )
-            
-            if date_validation['valid']:
-                if date_validation['warning']:
-                    st.warning(f"⚠️ {date_validation['message']}")
+            if start_date <= end_date:
+                days_diff = (end_date - start_date).days
+                if days_diff > 90:
+                    st.warning(f"⚠️ Large date range: {days_diff} days (may take longer)")
                 else:
-                    st.info(f"📅 Date range: {date_validation['days']} days")
+                    st.info(f"📅 Date range: {days_diff} days")
             else:
-                st.error(f"❌ {date_validation['message']}")
+                st.error("❌ Start date must be before end date")
         
         # Value range validation
         if not use_max_value:
@@ -155,15 +169,11 @@ def main():
         else:
             st.error("❌ Min value must be less than max value")
         
-        # Transaction types
-        if tx_types:
-            st.info(f"🔄 Types: {', '.join(tx_types)}")
+        # Transaction types display
+        if selected_labels:
+            st.info(f"🔄 Types: {', '.join(selected_labels)}")
         else:
             st.warning("⚠️ No transaction types selected")
-        
-        # Token mint filter
-        if token_mint:
-            st.info(f"🪙 Token: {token_mint}")
         
         # API limits info
         st.info(f"📊 API Limits:\n- Batch size: {BATCH_SIZE} transactions\n- Maximum: {MAX_TRANSACTIONS} transactions")
@@ -178,7 +188,7 @@ def main():
         wallet_valid and 
         start_date <= end_date and 
         (not use_max_value or min_value <= max_value) and 
-        tx_types
+        tx_types  # Check that we have transaction types
     )
     
     # Export button
@@ -204,82 +214,129 @@ def main():
             
             status_text.text("📡 Fetching transactions from Helius API...")
             
+            # Convert dates to datetime objects for API client
+            start_datetime = datetime.combine(start_date, datetime.min.time())
+            end_datetime = datetime.combine(end_date, datetime.max.time())
+            
             # Fetch all transactions
             all_transactions = client.get_all_transactions(
                 address=wallet,
-                start_date=datetime.combine(start_date, datetime.min.time()),
-                end_date=datetime.combine(end_date, datetime.max.time())
+                start_date=start_datetime,
+                end_date=end_datetime,
+                max_transactions=MAX_TRANSACTIONS
             )
+            progress_bar.progress(40)
+            
+            status_text.text(f"🔍 Validating {len(all_transactions)} transactions...")
+            
+            # Validate transactions first (removes malformed data)
+            valid_transactions = validate_transactions(all_transactions)
             progress_bar.progress(50)
             
-            status_text.text(f"🔍 Processing {len(all_transactions)} transactions...")
+            status_text.text(f"🔍 Processing {len(valid_transactions)} valid transactions...")
             
-            # Apply filters
-            filtered_transactions = all_transactions
+            # Apply filters using data processor functions
+            filtered_transactions = valid_transactions
             
             # Filter by date (additional filter on top of API params)
             filtered_transactions = filter_by_date(
                 filtered_transactions, 
-                datetime.combine(start_date, datetime.min.time()),
-                datetime.combine(end_date, datetime.max.time())
+                start_datetime,
+                end_datetime
             )
             progress_bar.progress(60)
             
             # Filter by value
-            if min_value > 0 or (use_max_value and max_value < float('inf')):
-                filtered_transactions = filter_by_value(
-                    filtered_transactions, min_value, max_value
-                )
+            filtered_transactions = filter_by_value(
+                filtered_transactions, min_value, max_value
+            )
             progress_bar.progress(70)
             
-            # Filter by transaction type
+            # Filter by transaction type (using corrected values)
             filtered_transactions = filter_by_type(filtered_transactions, tx_types)
             progress_bar.progress(80)
             
-            # Filter by token mint if specified
-            if token_mint:
-                filtered_transactions = [
-                    tx for tx in filtered_transactions
-                    if any(
-                        transfer.get('mint') == token_mint
-                        for transfer in tx.get('tokenTransfers', [])
-                    )
-                ]
-            progress_bar.progress(85)
-            
             status_text.text("📊 Formatting data for export...")
             
-            # Format for CSV
+            # Format for CSV using data processor
             df = format_for_csv(filtered_transactions)
+            progress_bar.progress(90)
             
-            # Validate export size
-            if not validate_export_size(df):
-                st.error(f"❌ Export size exceeds maximum limit of {MAX_TRANSACTIONS} transactions")
-                st.stop()
+            # Get summary using data processor
+            summary = get_transaction_summary(filtered_transactions)
             
-            # Get export summary
-            summary = get_export_summary(df)
+            # Display results
+            st.success(f"✅ Successfully processed {summary['total_count']} transactions")
             
-            # Display summary
-            st.success(f"✅ Successfully processed {summary['total_transactions']} transactions")
+            # Show breakdown of transaction types
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Transactions", summary['total_count'])
+            with col2:
+                st.metric("Regular Swaps", summary.get('swap_count', 0))
+            with col3:
+                st.metric("Aggregated Swaps", summary.get('agg_swap_count', 0))
+            
             st.info(f"💰 Total value: {format_currency(summary['total_value_usd'])}")
             st.info(f"🏢 Unique protocols: {summary['unique_protocols']}")
+            st.info(f"📅 Date range: {summary['date_range']}")
             
-            if summary['date_range']['start'] and summary['date_range']['end']:
-                st.info(f"📅 Date range: {summary['date_range']['start']} to {summary['date_range']['end']}")
+            # Create filter dictionary for export handler
+            filters = {
+                'wallet_address': wallet,
+                'start_date': start_datetime,
+                'end_date': end_datetime,
+                'min_value': min_value,
+                'max_value': max_value if use_max_value else float('inf'),
+                'transaction_types': tx_types
+            }
             
-            # Generate and provide download link
-            csv_data = generate_csv(df)
-            filename = generate_export_filename(wallet, start_date, end_date)
-            create_download_link(csv_data, filename)
+            # Use export handler for complete interface
+            progress_bar.progress(95)
+            status_text.text("📥 Preparing download...")
+            
+            create_export_interface(df, filters)
             
             progress_bar.progress(100)
             status_text.text("✅ Export complete!")
             
         except Exception as e:
             st.error(f"❌ Error during export: {str(e)}")
+            
+            # Show detailed error info in expander for debugging
+            with st.expander("🔍 Error Details (for debugging)"):
+                st.code(str(e))
+                import traceback
+                st.code(traceback.format_exc())
+            
             progress_bar.progress(0)
             status_text.text("❌ Export failed")
+    
+    # Information section
+    st.markdown("---")
+    with st.expander("ℹ️ About Transaction Types"):
+        st.markdown("""
+        ### Transaction Types Explained
+        
+        **Regular Swaps**
+        - Direct trades on individual DEXs
+        - Sources: Raydium, Orca, Serum, Saber, Mercurial, etc.
+        - Simple token-to-token exchanges
+        
+        **Aggregated Swaps**  
+        - Jupiter aggregated swaps
+        - Routes through multiple DEXs for best price
+        - May include multiple hops and protocols
+        - Optimized for price efficiency
+        
+        ### Supported Protocols
+        - **Jupiter**: Aggregator routing through multiple DEXs
+        - **Raydium**: Automated market maker (AMM)
+        - **Orca**: User-friendly DEX with concentrated liquidity
+        - **Serum**: Central limit order book DEX
+        - **Saber**: Stablecoin-focused AMM
+        - And more...
+        """)
 
 if __name__ == "__main__":
-    main() 
+    main()

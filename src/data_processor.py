@@ -241,7 +241,7 @@ def extract_token_info(tx: Dict) -> tuple:
     return token_in, token_out, amount_in, amount_out, value_usd
 
 def format_for_csv(transactions: List[Dict]) -> pd.DataFrame:
-    """Format transactions for CSV export using Helius Enhanced API structure
+    """Format transactions for CSV export
     
     Args:
         transactions: List of transaction dictionaries
@@ -249,36 +249,82 @@ def format_for_csv(transactions: List[Dict]) -> pd.DataFrame:
     Returns:
         Pandas DataFrame formatted for CSV export
     """
-    if not transactions:
-        return pd.DataFrame(columns=[
-            'signature', 'timestamp', 'activity_type', 'token_in', 
-            'token_out', 'amount_in', 'amount_out', 'value_usd', 'protocol'
-        ])
-    
     formatted_data = []
     
     for tx in transactions:
-        if tx is None:
-            continue
-            
         try:
-            # Extract basic transaction info from Helius Enhanced API
-            signature = safe_get(tx, 'signature', '')
-            timestamp_raw = safe_get(tx, 'timestamp', 0)
+            # Debug print the transaction structure
+            print(f"Processing transaction: {tx}")
             
-            # Convert timestamp safely
-            try:
-                timestamp = datetime.fromtimestamp(timestamp_raw).isoformat()
-            except (ValueError, OSError):
-                timestamp = datetime.now().isoformat()
+            # Extract basic transaction info
+            signature = tx.get('signature', '')
+            timestamp = datetime.fromtimestamp(tx.get('timestamp', 0)).isoformat()
+            activity_type = tx.get('type', '')
+            source = tx.get('source', '')
             
-            # Get transaction type and source (Helius Enhanced API fields)
-            activity_type = safe_get(tx, 'type', 'UNKNOWN')
-            source = safe_get(tx, 'source', 'UNKNOWN')
-            description = safe_get(tx, 'description', '')
+            # Initialize default values
+            token_in = ''
+            token_out = ''
+            amount_in = 0
+            amount_out = 0
+            value_usd = 0
+            protocol = source  # Use source as protocol
             
-            # Extract token information
-            token_in, token_out, amount_in, amount_out, value_usd = extract_token_info(tx)
+            # Extract detailed transaction data from events if available
+            if 'events' in tx and isinstance(tx['events'], dict) and 'swap' in tx['events']:
+                print(f"Processing swap event for tx {signature}")
+                swap_event = tx['events']['swap']
+                
+                # Get native transfers
+                if 'nativeInput' in swap_event and isinstance(swap_event['nativeInput'], dict):
+                    print(f"Found nativeInput: {swap_event['nativeInput']}")
+                    amount_in = float(swap_event['nativeInput'].get('amount', 0)) / 1e9  # Convert lamports to SOL
+                    token_in = 'SOL'
+                if 'nativeOutput' in swap_event and isinstance(swap_event['nativeOutput'], dict):
+                    print(f"Found nativeOutput: {swap_event['nativeOutput']}")
+                    amount_out = float(swap_event['nativeOutput'].get('amount', 0)) / 1e9  # Convert lamports to SOL
+                    token_out = 'SOL'
+                
+                # Get token transfers from inner swaps
+                if 'innerSwaps' in swap_event and isinstance(swap_event['innerSwaps'], list):
+                    print(f"Found innerSwaps: {swap_event['innerSwaps']}")
+                    for inner_swap in swap_event['innerSwaps']:
+                        if not isinstance(inner_swap, dict):
+                            continue
+                            
+                        if 'tokenInputs' in inner_swap and isinstance(inner_swap['tokenInputs'], list) and inner_swap['tokenInputs']:
+                            input_transfer = inner_swap['tokenInputs'][0]
+                            if isinstance(input_transfer, dict) and not token_in:  # Only set if not already set by native transfer
+                                token_in = input_transfer.get('mint', '')
+                                amount_in = float(input_transfer.get('tokenAmount', 0))
+                        
+                        if 'tokenOutputs' in inner_swap and isinstance(inner_swap['tokenOutputs'], list) and inner_swap['tokenOutputs']:
+                            output_transfer = inner_swap['tokenOutputs'][0]
+                            if isinstance(output_transfer, dict) and not token_out:  # Only set if not already set by native transfer
+                                token_out = output_transfer.get('mint', '')
+                                amount_out = float(output_transfer.get('tokenAmount', 0))
+            
+            # If no events data, try token transfers
+            if not token_in and not token_out and 'tokenTransfers' in tx and isinstance(tx['tokenTransfers'], list):
+                print(f"Processing token transfers for tx {signature}")
+                transfers = tx['tokenTransfers']
+                
+                # Find input and output tokens
+                for transfer in transfers:
+                    if not isinstance(transfer, dict):
+                        continue
+                        
+                    print(f"Processing transfer: {transfer}")
+                    if transfer.get('type') == 'in' or transfer.get('fromUserAccount') == tx.get('feePayer'):
+                        if not token_in:
+                            token_in = transfer.get('mint', '')
+                            amount_in = float(transfer.get('tokenAmount', 0))
+                    elif transfer.get('type') == 'out' or transfer.get('toUserAccount') == tx.get('feePayer'):
+                        if not token_out:
+                            token_out = transfer.get('mint', '')
+                            amount_out = float(transfer.get('tokenAmount', 0))
+                            if 'usdTokenPrice' in transfer:
+                                value_usd = amount_out * float(transfer.get('usdTokenPrice', 0))
             
             # Create row for CSV
             row = {
@@ -290,14 +336,13 @@ def format_for_csv(transactions: List[Dict]) -> pd.DataFrame:
                 'amount_in': amount_in,
                 'amount_out': amount_out,
                 'value_usd': value_usd,
-                'protocol': source,
-                'description': description
+                'protocol': protocol
             }
             
             formatted_data.append(row)
-            
         except Exception as e:
-            print(f"Error processing transaction {safe_get(tx, 'signature', 'unknown')}: {str(e)}")
+            print(f"Error processing transaction {tx.get('signature', 'unknown')}: {str(e)}")
+            print(f"Transaction data: {tx}")
             continue
     
     # Create DataFrame with specified columns

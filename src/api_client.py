@@ -39,7 +39,9 @@ class HeliusClient:
         
         params = {
             "api-key": self.api_key,
-            "limit": min(limit, 1000)  # Helius max is 1000
+            "limit": min(limit, 1000),  # Helius max is 1000
+            "commitment": "confirmed",
+            "source": "enhanced"  # Use enhanced API for better transaction details
         }
         
         if before:

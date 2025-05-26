@@ -68,7 +68,7 @@ def validate_transactions(transactions: Any) -> List[Dict]:
     Returns:
         Cleaned transaction list
     """
-    print(f"=== VALIDATING TRANSACTIONS ===")
+    print(f"\n=== VALIDATING TRANSACTIONS ===")
     print(f"Input type: {type(transactions)}")
     
     # Handle different input types
@@ -92,34 +92,62 @@ def validate_transactions(transactions: Any) -> List[Dict]:
         print("Transactions list is empty")
         return []
     
+    print(f"\nProcessing {len(transactions)} transactions")
     debug_transaction_structure(transactions)
     
     valid_transactions = []
     
     for i, tx in enumerate(transactions):
-        print(f"Processing transaction {i}: type={type(tx)}")
+        print(f"\nValidating transaction {i}:")
         
         if tx is None:
-            print(f"Transaction {i} is None, skipping")
+            print(f"  ❌ Transaction {i} is None, skipping")
             continue
             
         if not isinstance(tx, dict):
-            print(f"Transaction {i} is not a dict: {type(tx)}, content: {tx}")
+            print(f"  ❌ Transaction {i} is not a dict: {type(tx)}, content: {tx}")
             continue
             
         # Check for required fields in Helius Enhanced API response
         signature = safe_get(tx, 'signature')
         timestamp = safe_get(tx, 'timestamp')
         tx_type = safe_get(tx, 'type')
+        source = safe_get(tx, 'source')
+        description = safe_get(tx, 'description')
         
-        print(f"Transaction {i}: signature={signature}, timestamp={timestamp}, type={tx_type}")
+        print(f"  Signature: {signature}")
+        print(f"  Timestamp: {timestamp}")
+        print(f"  Type: {tx_type}")
+        print(f"  Source: {source}")
+        print(f"  Description: {description}")
+        
+        # Check for token transfers
+        token_transfers = safe_get(tx, 'tokenTransfers', [])
+        print(f"  Token transfers: {len(token_transfers)}")
+        if token_transfers:
+            print(f"  First token transfer: {token_transfers[0]}")
+        
+        # Check for native transfers
+        native_transfers = safe_get(tx, 'nativeTransfers', [])
+        print(f"  Native transfers: {len(native_transfers)}")
+        if native_transfers:
+            print(f"  First native transfer: {native_transfers[0]}")
         
         if signature and timestamp:
+            print(f"  ✅ Transaction {i} is valid")
             valid_transactions.append(tx)
         else:
-            print(f"Transaction {i} missing required fields: signature={signature}, timestamp={timestamp}")
+            print(f"  ❌ Transaction {i} missing required fields:")
+            if not signature:
+                print("    - Missing signature")
+            if not timestamp:
+                print("    - Missing timestamp")
     
-    print(f"Valid transactions: {len(valid_transactions)} out of {len(transactions)}")
+    print(f"\nValidation complete:")
+    print(f"  Total transactions: {len(transactions)}")
+    print(f"  Valid transactions: {len(valid_transactions)}")
+    print(f"  Invalid transactions: {len(transactions) - len(valid_transactions)}")
+    
     return valid_transactions
 
 def filter_by_date(transactions: List[Dict], start_date: datetime, end_date: datetime) -> List[Dict]:

@@ -68,7 +68,7 @@ class HeliusClient:
                 
                 data = response.json()
                 print(f"\nResponse type: {type(data)}")
-                print(f"Response content: {data}")
+                print(f"Response length: {len(data) if isinstance(data, list) else 'N/A'}")
                 
                 if not isinstance(data, list):
                     print(f"Warning: API response is not a list: {type(data)}")
@@ -85,6 +85,27 @@ class HeliusClient:
                     print(f"  Type: {first_tx.get('type', 'NO_TYPE')}")
                     print(f"  Source: {first_tx.get('source', 'NO_SOURCE')}")
                     print(f"  Description: {first_tx.get('description', 'NO_DESCRIPTION')}")
+                    
+                    # Print token transfers
+                    token_transfers = first_tx.get('tokenTransfers', [])
+                    if token_transfers:
+                        print("\n  Token transfers:")
+                        for i, transfer in enumerate(token_transfers[:2]):  # Show first 2 transfers
+                            print(f"    Transfer {i}:")
+                            print(f"      From: {transfer.get('fromUserAccount', 'NO_FROM')}")
+                            print(f"      To: {transfer.get('toUserAccount', 'NO_TO')}")
+                            print(f"      Amount: {transfer.get('tokenAmount', 'NO_AMOUNT')}")
+                            print(f"      Mint: {transfer.get('mint', 'NO_MINT')}")
+                    
+                    # Print native transfers
+                    native_transfers = first_tx.get('nativeTransfers', [])
+                    if native_transfers:
+                        print("\n  Native transfers:")
+                        for i, transfer in enumerate(native_transfers[:2]):  # Show first 2 transfers
+                            print(f"    Transfer {i}:")
+                            print(f"      From: {transfer.get('fromUserAccount', 'NO_FROM')}")
+                            print(f"      To: {transfer.get('toUserAccount', 'NO_TO')}")
+                            print(f"      Amount: {transfer.get('amount', 'NO_AMOUNT')}")
                 
                 return data
                 
@@ -107,17 +128,7 @@ class HeliusClient:
                     raise Exception(f"Helius API error after {MAX_RETRIES} attempts: {str(e)}")
     
     def get_all_transactions(self, address: str, start_date: datetime, end_date: datetime, max_transactions: int = 5000) -> List[Dict]:
-        """Get all transactions for an address with pagination
-        
-        Args:
-            address: Wallet address
-            start_date: Start date for filtering
-            end_date: End date for filtering
-            max_transactions: Maximum number of transactions to fetch
-            
-        Returns:
-            List of transaction dictionaries
-        """
+        """Get all transactions for an address with pagination"""
         print(f"\n=== FETCHING ALL TRANSACTIONS ===")
         print(f"Address: {address}")
         print(f"Date range: {start_date} to {end_date}")
@@ -159,6 +170,10 @@ class HeliusClient:
                 
                 # Filter by date
                 filtered_transactions = []
+                print("\nFiltering transactions by date:")
+                print(f"Start date: {start_date}")
+                print(f"End date: {end_date}")
+                
                 for tx in transactions:
                     timestamp = tx.get('timestamp', 0)
                     if not timestamp:
@@ -167,13 +182,24 @@ class HeliusClient:
                         
                     try:
                         tx_date = datetime.fromtimestamp(timestamp)
+                        print(f"\nTransaction {tx.get('signature', 'NO_SIGNATURE')}:")
+                        print(f"  Timestamp: {timestamp}")
+                        print(f"  Date: {tx_date}")
+                        
                         if start_date <= tx_date <= end_date:
+                            print(f"  ✅ INCLUDED: Within date range")
                             filtered_transactions.append(tx)
+                        else:
+                            print(f"  ❌ EXCLUDED: Outside date range")
+                            if tx_date < start_date:
+                                print(f"    Before start date")
+                            else:
+                                print(f"    After end date")
                     except (ValueError, OSError) as e:
                         print(f"Error processing timestamp {timestamp}: {e}")
                         continue
                 
-                print(f"After date filtering: {len(filtered_transactions)} transactions")
+                print(f"\nAfter date filtering: {len(filtered_transactions)} transactions")
                 
                 if not filtered_transactions:
                     print("No transactions in date range, stopping pagination")

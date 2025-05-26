@@ -56,8 +56,7 @@ def filter_by_value(transactions: List[Dict], min_usd: float, max_usd: float) ->
                 if 'usdTokenPrice' in transfer:
                     amount = float(transfer.get('amount', 0))
                     price = float(transfer.get('usdTokenPrice', 0))
-                    value_usd = amount * price
-                    break
+                    value_usd += amount * price
         
         # Check native transfers if no token transfers found
         if value_usd == 0 and 'nativeTransfers' in tx:
@@ -65,8 +64,15 @@ def filter_by_value(transactions: List[Dict], min_usd: float, max_usd: float) ->
                 if 'usdTokenPrice' in transfer:
                     amount = float(transfer.get('amount', 0))
                     price = float(transfer.get('usdTokenPrice', 0))
-                    value_usd = amount * price
-                    break
+                    value_usd += amount * price
+        
+        # Check events for swap information
+        if value_usd == 0 and 'events' in tx and 'swap' in tx['events']:
+            swap_event = tx['events']['swap']
+            if 'nativeInput' in swap_event:
+                value_usd += float(swap_event['nativeInput'].get('amount', 0)) / 1e9  # Convert lamports to SOL
+            if 'nativeOutput' in swap_event:
+                value_usd += float(swap_event['nativeOutput'].get('amount', 0)) / 1e9  # Convert lamports to SOL
         
         # Check if value is within range
         if min_usd <= value_usd <= max_usd:
@@ -89,8 +95,11 @@ def filter_by_type(transactions: List[Dict], types: List[str]) -> List[Dict]:
     
     for tx in transactions:
         # Get transaction type from Helius response
-        tx_type = tx.get('type', '')
-        if tx_type in types:
+        tx_type = tx.get('type', '').upper()
+        tx_source = tx.get('source', '').upper()
+        
+        # Check if type matches or if it's a swap from a known DEX
+        if tx_type in types or (tx_type == 'SWAP' and tx_source in ['JUPITER', 'RAYDIUM', 'ORCA']):
             filtered.append(tx)
     
     return filtered
@@ -112,6 +121,7 @@ def format_for_csv(transactions: List[Dict]) -> pd.DataFrame:
         signature = tx.get('signature', '')
         timestamp = datetime.fromtimestamp(tx.get('timestamp', 0)).isoformat()
         activity_type = tx.get('type', '')
+        source = tx.get('source', '')
         
         # Initialize default values
         token_in = ''
@@ -119,25 +129,51 @@ def format_for_csv(transactions: List[Dict]) -> pd.DataFrame:
         amount_in = 0
         amount_out = 0
         value_usd = 0
-        protocol = ''
+        protocol = source  # Use source as protocol
         
-        # Extract detailed transaction data
-        if 'tokenTransfers' in tx:
+        # Extract detailed transaction data from events if available
+        if 'events' in tx and 'swap' in tx['events']:
+            swap_event = tx['events']['swap']
+            
+            # Get native transfers
+            if 'nativeInput' in swap_event:
+                amount_in = float(swap_event['nativeInput'].get('amount', 0)) / 1e9  # Convert lamports to SOL
+                token_in = 'SOL'
+            if 'nativeOutput' in swap_event:
+                amount_out = float(swap_event['nativeOutput'].get('amount', 0)) / 1e9  # Convert lamports to SOL
+                token_out = 'SOL'
+            
+            # Get token transfers from inner swaps
+            if 'innerSwaps' in swap_event:
+                for inner_swap in swap_event['innerSwaps']:
+                    if 'tokenInputs' in inner_swap and inner_swap['tokenInputs']:
+                        input_transfer = inner_swap['tokenInputs'][0]
+                        if not token_in:  # Only set if not already set by native transfer
+                            token_in = input_transfer.get('mint', '')
+                            amount_in = float(input_transfer.get('tokenAmount', 0))
+                    
+                    if 'tokenOutputs' in inner_swap and inner_swap['tokenOutputs']:
+                        output_transfer = inner_swap['tokenOutputs'][0]
+                        if not token_out:  # Only set if not already set by native transfer
+                            token_out = output_transfer.get('mint', '')
+                            amount_out = float(output_transfer.get('tokenAmount', 0))
+        
+        # If no events data, try token transfers
+        if not token_in and not token_out and 'tokenTransfers' in tx:
             transfers = tx['tokenTransfers']
             
             # Find input and output tokens
             for transfer in transfers:
-                if transfer.get('type') == 'in':
-                    token_in = transfer.get('mint', '')
-                    amount_in = float(transfer.get('amount', 0))
-                elif transfer.get('type') == 'out':
-                    token_out = transfer.get('mint', '')
-                    amount_out = float(transfer.get('amount', 0))
-                    if 'usdTokenPrice' in transfer:
-                        value_usd = amount_out * float(transfer.get('usdTokenPrice', 0))
-            
-            # Get protocol info
-            protocol = tx.get('programId', '')
+                if transfer.get('type') == 'in' or transfer.get('fromUserAccount') == tx.get('feePayer'):
+                    if not token_in:
+                        token_in = transfer.get('mint', '')
+                        amount_in = float(transfer.get('tokenAmount', 0))
+                elif transfer.get('type') == 'out' or transfer.get('toUserAccount') == tx.get('feePayer'):
+                    if not token_out:
+                        token_out = transfer.get('mint', '')
+                        amount_out = float(transfer.get('tokenAmount', 0))
+                        if 'usdTokenPrice' in transfer:
+                            value_usd = amount_out * float(transfer.get('usdTokenPrice', 0))
         
         # Create row for CSV
         row = {

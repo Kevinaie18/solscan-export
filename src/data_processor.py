@@ -21,7 +21,7 @@ def safe_get(obj: Any, key: str, default=None):
 
 def debug_transaction_structure(transactions: List[Any]) -> None:
     """Debug function to inspect transaction structure"""
-    print(f"=== DEBUGGING TRANSACTION STRUCTURE ===")
+    print(f"\n=== DEBUGGING TRANSACTION STRUCTURE ===")
     print(f"Transactions type: {type(transactions)}")
     print(f"Transactions length: {len(transactions) if hasattr(transactions, '__len__') else 'No length'}")
     
@@ -32,11 +32,32 @@ def debug_transaction_structure(transactions: List[Any]) -> None:
         
         if isinstance(first_tx, dict):
             print(f"First transaction keys: {list(first_tx.keys())}")
+            print(f"First transaction type: {first_tx.get('type', 'NO_TYPE')}")
+            print(f"First transaction source: {first_tx.get('source', 'NO_SOURCE')}")
+            print(f"First transaction description: {first_tx.get('description', 'NO_DESCRIPTION')}")
+            
+            # Debug token transfers
+            token_transfers = first_tx.get('tokenTransfers', [])
+            print(f"Token transfers count: {len(token_transfers)}")
+            if token_transfers:
+                print(f"First token transfer: {token_transfers[0]}")
+            
+            # Debug native transfers
+            native_transfers = first_tx.get('nativeTransfers', [])
+            print(f"Native transfers count: {len(native_transfers)}")
+            if native_transfers:
+                print(f"First native transfer: {native_transfers[0]}")
         
         # Check a few more transactions
         for i, tx in enumerate(transactions[:3]):
-            print(f"Transaction {i}: type={type(tx)}, is_dict={isinstance(tx, dict)}")
-    print("=== END DEBUG ===")
+            print(f"\nTransaction {i}:")
+            print(f"  Type: {type(tx)}")
+            print(f"  Is dict: {isinstance(tx, dict)}")
+            if isinstance(tx, dict):
+                print(f"  Keys: {list(tx.keys())}")
+                print(f"  Type: {tx.get('type', 'NO_TYPE')}")
+                print(f"  Source: {tx.get('source', 'NO_SOURCE')}")
+    print("\n=== END DEBUG ===")
 
 def validate_transactions(transactions: Any) -> List[Dict]:
     """Validate and clean transaction data with enhanced debugging
@@ -147,6 +168,7 @@ def calculate_transaction_value(tx: Dict) -> float:
         # Method 1: Check tokenTransfers
         token_transfers = safe_get(tx, 'tokenTransfers', [])
         if token_transfers and isinstance(token_transfers, list):
+            print(f"Processing {len(token_transfers)} token transfers")
             for transfer in token_transfers:
                 if not isinstance(transfer, dict):
                     continue
@@ -154,7 +176,9 @@ def calculate_transaction_value(tx: Dict) -> float:
                 token_amount = safe_get(transfer, 'tokenAmount', 0)
                 if token_amount:
                     try:
-                        value_usd += float(token_amount) * 0.01
+                        transfer_value = float(token_amount) * 0.01
+                        value_usd += transfer_value
+                        print(f"  Token transfer value: ${transfer_value}")
                     except (ValueError, TypeError):
                         continue
         
@@ -162,6 +186,7 @@ def calculate_transaction_value(tx: Dict) -> float:
         if value_usd == 0:
             native_transfers = safe_get(tx, 'nativeTransfers', [])
             if native_transfers and isinstance(native_transfers, list):
+                print(f"Processing {len(native_transfers)} native transfers")
                 for transfer in native_transfers:
                     if not isinstance(transfer, dict):
                         continue
@@ -170,7 +195,9 @@ def calculate_transaction_value(tx: Dict) -> float:
                     if amount:
                         try:
                             sol_amount = float(amount) / 1e9
-                            value_usd += sol_amount * 100
+                            transfer_value = sol_amount * 100
+                            value_usd += transfer_value
+                            print(f"  Native transfer value: ${transfer_value}")
                         except (ValueError, TypeError):
                             continue
         
@@ -181,6 +208,7 @@ def calculate_transaction_value(tx: Dict) -> float:
                 try:
                     sol_fee = float(fee) / 1e9
                     value_usd = sol_fee * 100
+                    print(f"  Fee-based value: ${value_usd}")
                 except (ValueError, TypeError):
                     pass
     
@@ -188,11 +216,12 @@ def calculate_transaction_value(tx: Dict) -> float:
         print(f"Error calculating transaction value: {e}")
         return 0.0
     
+    print(f"Total transaction value: ${value_usd}")
     return value_usd
 
 def filter_by_value(transactions: List[Dict], min_usd: float, max_usd: float) -> List[Dict]:
     """Filter transactions by USD value range with enhanced error handling"""
-    print(f"=== FILTERING BY VALUE ===")
+    print(f"\n=== FILTERING BY VALUE ===")
     print(f"Input transactions: {len(transactions) if transactions else 0}")
     print(f"Value range: ${min_usd} to ${max_usd}")
     
@@ -208,27 +237,35 @@ def filter_by_value(transactions: List[Dict], min_usd: float, max_usd: float) ->
                 continue
                 
             value_usd = calculate_transaction_value(tx)
+            print(f"\nTransaction {i}:")
+            print(f"  Calculated value: ${value_usd}")
             
             if min_usd <= value_usd <= max_usd:
+                print(f"  INCLUDED: Value within range")
                 filtered.append(tx)
+            else:
+                print(f"  EXCLUDED: Value outside range")
+                
         except Exception as e:
             print(f"Error processing transaction {i} in value filter: {e}")
             continue
     
-    print(f"Filtered by value: {len(filtered)} transactions")
+    print(f"\nFiltered by value: {len(filtered)} transactions")
     return filtered
 
 def filter_by_type(transactions: List[Dict], types: List[str]) -> List[Dict]:
     """Filter transactions by activity type with enhanced error handling"""
-    print(f"=== FILTERING BY TYPE ===")
+    print(f"\n=== FILTERING BY TYPE ===")
     print(f"Input transactions: {len(transactions) if transactions else 0}")
     print(f"Requested types: {types}")
     
     if not transactions or not types:
+        print("No transactions or types to filter")
         return []
     
     filtered = []
     normalized_types = [t.lower() for t in types]
+    print(f"Normalized types: {normalized_types}")
     
     for i, tx in enumerate(transactions):
         try:
@@ -240,6 +277,11 @@ def filter_by_type(transactions: List[Dict], types: List[str]) -> List[Dict]:
             tx_source = safe_get(tx, 'source', '').lower()
             description = safe_get(tx, 'description', '').lower()
             
+            print(f"\nTransaction {i}:")
+            print(f"  Type: {tx_type}")
+            print(f"  Source: {tx_source}")
+            print(f"  Description: {description}")
+            
             is_match = False
             
             # Check for regular swaps
@@ -250,30 +292,37 @@ def filter_by_type(transactions: List[Dict], types: List[str]) -> List[Dict]:
                     (tx_source in ['raydium', 'orca', 'serum', 'saber', 'mercurial'] and 
                      tx_type in ['transfer', 'unknown'])
                 )
+                print(f"  Regular swap match: {is_match}")
             
             # Check for aggregated swaps
             if 'agg_swap' in normalized_types or 'aggregated_swap' in normalized_types:
-                is_match = is_match or (
+                agg_match = (
                     tx_source == 'jupiter' or
                     'jupiter' in description or
                     'aggregate' in description or
                     'route' in description
                 )
+                is_match = is_match or agg_match
+                print(f"  Aggregated swap match: {agg_match}")
             
             # Include any DEX/AMM transaction
             if any(t in ['swap', 'agg_swap', 'aggregated_swap'] for t in normalized_types):
                 dex_sources = ['jupiter', 'raydium', 'orca', 'serum', 'saber', 'mercurial']
-                if tx_source in dex_sources:
-                    is_match = True
+                dex_match = tx_source in dex_sources
+                is_match = is_match or dex_match
+                print(f"  DEX match: {dex_match}")
             
             if is_match:
+                print(f"  INCLUDED: Matched type filter")
                 filtered.append(tx)
+            else:
+                print(f"  EXCLUDED: No type match")
                 
         except Exception as e:
             print(f"Error processing transaction {i} in type filter: {e}")
             continue
     
-    print(f"Filtered by type: {len(filtered)} transactions")
+    print(f"\nFiltered by type: {len(filtered)} transactions")
     return filtered
 
 def format_for_csv(transactions: List[Dict]) -> pd.DataFrame:

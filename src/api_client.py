@@ -1,58 +1,49 @@
 """
-Solscan API Client for DeFi transaction data
+Helius API Client for DeFi transaction data
 """
 
 import requests
 import time
 from typing import Optional, Dict, List
+from datetime import datetime
 
 
-class SolscanClient:
-    """Client for interacting with Solscan public API"""
+class HeliusClient:
+    """Client for interacting with Helius Enhanced Transactions API"""
     
     def __init__(self, api_key: str):
-        """Initialize the Solscan client
+        """Initialize the Helius client
         
         Args:
-            api_key: Solscan API key
+            api_key: Helius API key
         """
         self.api_key = api_key
-        self.base_url = "https://pro-api.solscan.io/v2.0"
+        self.base_url = "https://api.helius.xyz/v0"
         self.headers = {
-            "token": api_key,
+            "Authorization": f"Bearer {api_key}",
             "User-Agent": "DeFi-Export-Tool/1.0"
         }
     
-    def get_defi_activities(self, account: str, from_time: int, to_time: int, 
-                           page: int = 1, page_size: int = 100) -> Dict:
-        """Get DeFi activities for an account
+    def get_transactions(self, address: str, before: Optional[str] = None, 
+                        limit: int = 1000) -> List[Dict]:
+        """Get transactions for an address
         
         Args:
-            account: Wallet address
-            from_time: Start timestamp (Unix)
-            to_time: End timestamp (Unix)
-            page: Page number for pagination
-            page_size: Number of transactions per page
+            address: Wallet address
+            before: Optional timestamp to fetch transactions before
+            limit: Number of transactions to fetch (max 1000)
             
         Returns:
-            API response data
+            List of transactions
         """
-        url = f"{self.base_url}/token/defi/activities"
+        url = f"{self.base_url}/addresses/{address}/transactions"
         
         params = {
-            "address": account,
-            "activity_type[]": ["ACTIVITY_TOKEN_SWAP", "ACTIVITY_AGG_TOKEN_SWAP"],
-            "page": page,
-            "page_size": page_size,
-            "sort_by": "block_time",
-            "sort_order": "desc"
+            "limit": min(limit, 1000)  # Helius max is 1000
         }
         
-        # Add time range if specified
-        if from_time:
-            params["from_time"] = from_time
-        if to_time:
-            params["to_time"] = to_time
+        if before:
+            params["before"] = before
         
         try:
             response = requests.get(url, headers=self.headers, params=params, timeout=30)
@@ -61,53 +52,55 @@ class SolscanClient:
         except requests.exceptions.RequestException as e:
             raise Exception(f"API request failed: {str(e)}")
     
-    def get_all_transactions(self, account: str, from_time: int, to_time: int) -> List[Dict]:
+    def get_all_transactions(self, address: str, start_date: datetime, 
+                           end_date: datetime, max_transactions: int = 30000) -> List[Dict]:
         """Get all transactions using pagination
         
         Args:
-            account: Wallet address
-            from_time: Start timestamp (Unix)
-            to_time: End timestamp (Unix)
+            address: Wallet address
+            start_date: Start date filter
+            end_date: End date filter
+            max_transactions: Maximum number of transactions to fetch
             
         Returns:
             List of all transactions
         """
         all_transactions = []
-        page = 1
+        before = None
+        start_timestamp = int(start_date.timestamp())
         
-        while True:
+        while len(all_transactions) < max_transactions:
             # Make API request
-            response = self.get_defi_activities(
-                account=account,
-                from_time=from_time,
-                to_time=to_time,
-                page=page,
-                page_size=100
+            transactions = self.get_transactions(
+                address=address,
+                before=before,
+                limit=1000
             )
             
             # Check if we have data
-            if not response.get('data'):
+            if not transactions:
                 break
             
-            transactions = response['data']
-            all_transactions.extend(transactions)
+            # Filter by date
+            filtered_tx = [
+                tx for tx in transactions 
+                if start_timestamp <= tx.get('timestamp', 0) <= int(end_date.timestamp())
+            ]
             
-            # Check if we've reached the end
-            if len(transactions) < 100:
+            all_transactions.extend(filtered_tx)
+            
+            # Check if we've reached the start date
+            if not filtered_tx or filtered_tx[-1].get('timestamp', 0) < start_timestamp:
                 break
             
             # Set up for next iteration
-            page += 1
+            before = str(filtered_tx[-1].get('timestamp', 0))
             
-            # Rate limiting
-            self.wait_for_rate_limit()
-            
-            # Safety break to prevent infinite loops
-            if len(all_transactions) > 10000:
-                break
+            # Rate limiting (10 requests per second)
+            time.sleep(0.1)  # 100ms delay
         
         return all_transactions
     
     def wait_for_rate_limit(self):
         """Enforce rate limiting"""
-        time.sleep(0.2)  # 200ms delay 
+        time.sleep(0.1)  # 100ms delay for 10 RPS limit 

@@ -23,7 +23,7 @@ def filter_by_date(transactions: List[Dict], start_date: datetime, end_date: dat
     end_timestamp = int(end_date.timestamp())
     
     for tx in transactions:
-        tx_timestamp = tx.get('blockTime', 0)
+        tx_timestamp = tx.get('timestamp', 0)
         if start_timestamp <= tx_timestamp <= end_timestamp:
             filtered.append(tx)
     
@@ -46,11 +46,23 @@ def filter_by_value(transactions: List[Dict], min_usd: float, max_usd: float) ->
     for tx in transactions:
         # Get USD value from transaction
         value_usd = 0
+        
+        # Check token transfers
         if 'tokenTransfers' in tx:
-            transfers = tx['tokenTransfers']
-            for transfer in transfers:
-                if transfer.get('type') == 'out':
-                    value_usd = float(transfer.get('value', 0))
+            for transfer in tx['tokenTransfers']:
+                if 'usdTokenPrice' in transfer:
+                    amount = float(transfer.get('amount', 0))
+                    price = float(transfer.get('usdTokenPrice', 0))
+                    value_usd = amount * price
+                    break
+        
+        # Check native transfers if no token transfers found
+        if value_usd == 0 and 'nativeTransfers' in tx:
+            for transfer in tx['nativeTransfers']:
+                if 'usdTokenPrice' in transfer:
+                    amount = float(transfer.get('amount', 0))
+                    price = float(transfer.get('usdTokenPrice', 0))
+                    value_usd = amount * price
                     break
         
         # Check if value is within range
@@ -65,7 +77,7 @@ def filter_by_type(transactions: List[Dict], types: List[str]) -> List[Dict]:
     
     Args:
         transactions: List of transaction dictionaries
-        types: List of activity types to include (e.g., ['swap', 'agg_swap'])
+        types: List of activity types to include (e.g., ['SWAP', 'AGGREGATOR_SWAP'])
         
     Returns:
         Filtered list of transactions
@@ -73,8 +85,9 @@ def filter_by_type(transactions: List[Dict], types: List[str]) -> List[Dict]:
     filtered = []
     
     for tx in transactions:
-        activity_type = tx.get('activity_type', '')
-        if activity_type in types:
+        # Get transaction type from Helius response
+        tx_type = tx.get('type', '')
+        if tx_type in types:
             filtered.append(tx)
     
     return filtered
@@ -94,8 +107,8 @@ def format_for_csv(transactions: List[Dict]) -> pd.DataFrame:
     for tx in transactions:
         # Extract basic transaction info
         signature = tx.get('signature', '')
-        timestamp = datetime.fromtimestamp(tx.get('blockTime', 0)).isoformat()
-        activity_type = tx.get('activityType', '').replace('ACTIVITY_', '').lower()
+        timestamp = datetime.fromtimestamp(tx.get('timestamp', 0)).isoformat()
+        activity_type = tx.get('type', '')
         
         # Initialize default values
         token_in = ''
@@ -112,15 +125,16 @@ def format_for_csv(transactions: List[Dict]) -> pd.DataFrame:
             # Find input and output tokens
             for transfer in transfers:
                 if transfer.get('type') == 'in':
-                    token_in = transfer.get('symbol', '')
+                    token_in = transfer.get('mint', '')
                     amount_in = float(transfer.get('amount', 0))
                 elif transfer.get('type') == 'out':
-                    token_out = transfer.get('symbol', '')
+                    token_out = transfer.get('mint', '')
                     amount_out = float(transfer.get('amount', 0))
-                    value_usd = float(transfer.get('value', 0))  # USD value
+                    if 'usdTokenPrice' in transfer:
+                        value_usd = amount_out * float(transfer.get('usdTokenPrice', 0))
             
             # Get protocol info
-            protocol = tx.get('programName', '')
+            protocol = tx.get('programId', '')
         
         # Create row for CSV
         row = {

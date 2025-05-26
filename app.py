@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import time
 
 # Import our modules
-from src.api_client import SolscanClient
+from src.api_client import HeliusClient
 from src.data_processor import filter_by_date, filter_by_value, filter_by_type, format_for_csv
 from src.export_handler import generate_csv, create_download_link, validate_export_size, get_export_summary
 from src.utils import validate_solana_address, format_currency, validate_date_range, generate_export_filename
@@ -34,14 +34,14 @@ def main():
     
     # Check for API key
     try:
-        api_key = st.secrets["api"]["solscan_key"]
+        api_key = st.secrets["api"]["helius_key"]
         if api_key == "your_key_here":
-            st.error("⚠️ Please configure your Solscan API key in .streamlit/secrets.toml")
-            st.info("Get your free API key at: https://pro.solscan.io/api-pro")
+            st.error("⚠️ Please configure your Helius API key in .streamlit/secrets.toml")
+            st.info("Get your free API key at: https://dev.helius.xyz/")
             st.stop()
     except Exception:
-        st.error("⚠️ Please configure your Solscan API key in .streamlit/secrets.toml")
-        st.info("Get your free API key at: https://pro.solscan.io/api-pro")
+        st.error("⚠️ Please configure your Helius API key in .streamlit/secrets.toml")
+        st.info("Get your free API key at: https://dev.helius.xyz/")
         st.stop()
     
     # Create layout columns
@@ -108,9 +108,16 @@ def main():
         # Transaction type selection
         tx_types = st.multiselect(
             "Transaction Types",
-            options=["swap", "agg_swap"],
-            default=["swap", "agg_swap"],
+            options=["SWAP", "AGGREGATOR_SWAP"],
+            default=["SWAP", "AGGREGATOR_SWAP"],
             help="Select which types of DeFi transactions to include"
+        )
+        
+        # Optional token mint filter
+        token_mint = st.text_input(
+            "Token Mint (Optional)",
+            placeholder="Enter token mint address to filter by specific token",
+            help="Filter transactions by a specific token mint address"
         )
     
     with col2:
@@ -153,6 +160,10 @@ def main():
             st.info(f"🔄 Types: {', '.join(tx_types)}")
         else:
             st.warning("⚠️ No transaction types selected")
+        
+        # Token mint filter
+        if token_mint:
+            st.info(f"🪙 Token: {token_mint}")
     
     # Export section
     st.markdown("---")
@@ -185,20 +196,16 @@ def main():
             time.sleep(0.5)
             
             # Create API client
-            client = SolscanClient(api_key)
+            client = HeliusClient(api_key)
             progress_bar.progress(10)
             
-            status_text.text("📡 Fetching transactions from Solscan API...")
-            
-            # Convert dates to timestamps
-            start_timestamp = convert_to_timestamp(start_date)
-            end_timestamp = convert_to_timestamp(end_date)
+            status_text.text("📡 Fetching transactions from Helius API...")
             
             # Fetch all transactions
             all_transactions = client.get_all_transactions(
-                account=wallet,
-                from_time=start_timestamp,
-                to_time=end_timestamp
+                address=wallet,
+                start_date=datetime.combine(start_date, datetime.min.time()),
+                end_date=datetime.combine(end_date, datetime.max.time())
             )
             progress_bar.progress(50)
             
@@ -226,6 +233,17 @@ def main():
             filtered_transactions = filter_by_type(filtered_transactions, tx_types)
             progress_bar.progress(80)
             
+            # Filter by token mint if specified
+            if token_mint:
+                filtered_transactions = [
+                    tx for tx in filtered_transactions
+                    if any(
+                        transfer.get('mint') == token_mint
+                        for transfer in tx.get('tokenTransfers', [])
+                    )
+                ]
+            progress_bar.progress(85)
+            
             status_text.text("📊 Formatting data for export...")
             
             # Format for CSV
@@ -249,85 +267,26 @@ def main():
                 with col1:
                     st.metric("Total Transactions", summary['total_transactions'])
                 with col2:
-                    st.metric("Total Value USD", format_currency(summary['total_value_usd']))
+                    st.metric("Total Value (USD)", format_currency(summary['total_value']))
                 with col3:
-                    st.metric("Unique Protocols", summary['unique_protocols'])
+                    st.metric("Average Value (USD)", format_currency(summary['avg_value']))
                 
-                # Generate filename and CSV
-                filename = generate_export_filename(
-                    wallet, 
-                    datetime.combine(start_date, datetime.min.time()),
-                    datetime.combine(end_date, datetime.max.time())
+                # Display data
+                st.dataframe(df)
+                
+                # Export options
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=generate_csv(df),
+                    file_name=generate_export_filename(wallet),
+                    mime="text/csv"
                 )
-                csv_data = generate_csv(df)
-                create_download_link(csv_data, filename)
-                
-                # Show preview
-                st.subheader("📋 Data Preview")
-                st.dataframe(df.head(10), use_container_width=True)
-                
-                if len(df) > 10:
-                    st.info(f"Showing first 10 rows of {len(df)} total transactions")
-                
-                # Additional export info
-                st.success(f"✅ Export completed successfully! Found {len(df)} transactions matching your criteria.")
-            
             else:
-                st.warning("⚠️ No transactions found matching your filters")
-                st.info("💡 **Tips to find more transactions:**")
-                st.markdown("""
-                - Expand your date range
-                - Increase the maximum USD value filter
-                - Check if the wallet has DeFi transaction history
-                - Verify transaction types are selected
-                """)
+                st.warning("No transactions found matching your criteria")
         
         except Exception as e:
-            st.error(f"❌ Error during export: {str(e)}")
-            st.info("💡 **Troubleshooting steps:**")
-            st.markdown("""
-            - Check your Solscan API key configuration
-            - Verify the wallet address is correct
-            - Try reducing the date range
-            - Check your internet connection
-            """)
-    
-    # Help section
-    with st.expander("ℹ️ Help & Information"):
-        st.markdown("""
-        ### Supported Transaction Types
-        - **swap**: Direct token swaps on DEX platforms
-        - **agg_swap**: Aggregated swaps through Jupiter or similar aggregators
-        
-        ### Tips for Better Results
-        - Start with smaller date ranges (7-30 days) for testing
-        - Wallets with high DeFi activity will have more results
-        - Popular DeFi protocols: Jupiter, Raydium, Orca, Serum
-        
-        ### Export Limitations
-        - Maximum 10,000 transactions per export
-        - Recommended date range: 90 days or less
-        - CSV format only (additional formats coming soon)
-        
-        ### Support
-        - API Issues: Check [Solscan Documentation](https://docs.solscan.io/)
-        - Rate Limits: Tool automatically handles API rate limiting
-        """)
-    
-    # Footer
-    st.markdown("---")
-    st.markdown(
-        """
-        <div style='text-align: center; color: #666;'>
-            <small>
-                Built with ❤️ for the DeFi community<br>
-                Powered by <a href="https://solscan.io" target="_blank">Solscan API</a> • 
-                Built with <a href="https://streamlit.io" target="_blank">Streamlit</a>
-            </small>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            st.error(f"❌ Error: {str(e)}")
+            st.info("Please try again or adjust your filters")
 
 if __name__ == "__main__":
     main() 
